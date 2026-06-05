@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistem Antrian RS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dayjs@1/dayjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dayjs@1/plugin/customParseFormat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dayjs@1/locale/id.js"></script>
+  <style>
+    @media print {
+      body * { visibility: hidden; }
+     .print-area,.print-area * { visibility: visible; }
+     .print-area { position: absolute; left: 0; top: 0; width: 58mm; }
+     .no-print { display: none!important; }
+    }
+  </style>
+  <script type="module">
+    dayjs.extend(window.dayjs_plugin_customParseFormat)
+    dayjs.locale('id')
+
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js'
+    import { getDatabase, ref, onValue, runTransaction, update, get, query, orderByChild, equalTo } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js'
+
+    // 1. GANTI CONFIG FIREBASE KAMU DI SINI
+	const firebaseConfig = {
+	  apiKey: "AIzaSyDofqtqh3WBRPpQ19T154_Qiu3PkEJPD1w",
+	  authDomain: "antrian-b1bcf.firebaseapp.com",
+	  databaseURL: "https://antrian-b1bcf-default-rtdb.asia-southeast1.firebasedatabase.app",
+	  projectId: "antrian-b1bcf",
+	  storageBucket: "antrian-b1bcf.firebasestorage.app",
+	  messagingSenderId: "153876004774",
+	  appId: "1:153876004774:web:5c3623aa5a30b538a11967"
+	};
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // Routing sederhana
+    const page = window.location.hash.substring(1).split('?')[0] || 'home';
+    document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+    document.getElementById(page).style.display = 'block';
+
+    // Auto reset antrian tiap hari jam 00:00
+    const today = dayjs().format('YYYY-MM-DD');
+    get(ref(db, 'antrian/tanggal_reset')).then(snap => {
+      if (snap.val()!== today) {
+        update(ref(db, 'antrian'), { nomor_terakhir: 0, tanggal_reset: today, list: {} });
+      }
+    });
+
+    // ================= HALAMAN HOME / PILIH POLI =================
+    if (page === 'home') {
+      onValue(ref(db, 'poli'), (snap) => {
+        const polis = snap.val() || {};
+        const container = document.getElementById('list-poli');
+        container.innerHTML = '';
+        Object.entries(polis).forEach(([key, val]) => {
+          if (!val.aktif) return;
+          const btn = document.createElement('button');
+          btn.className = 'w-full bg-blue-600 hover:bg-blue-700 text-white text-xl font-bold py-6 rounded-xl mb-4 shadow-lg';
+          btn.innerHTML = `${val.nama}<br><span class="text-sm font-normal">Sentuh untuk ambil nomor</span>`;
+          btn.onclick = () => ambilNomor(key, val.prefix);
+          container.appendChild(btn);
+        });
+      });
+
+      onValue(ref(db, 'config'), (snap) => {
+        const cfg = snap.val();
+        document.getElementById('nama-rs').innerText = cfg.nama_instansi;
+        document.getElementById('alamat-rs').innerText = cfg.alamat;
+      });
+
+      function ambilNomor(poliKey, prefix) {
+        const now = Date.now();
+        runTransaction(ref(db, 'antrian/nomor_terakhir'), (current) => (current || 0) + 1).then(({ snapshot }) => {
+          const nomorBaru = snapshot.val();
+          const id = prefix + String(nomorBaru).padStart(3, '0');
+          update(ref(db, 'antrian/list/' + id), {
+            nomor: nomorBaru,
+            prefix: prefix,
+            poli: poliKey,
+            status: 'menunggu',
+            waktu_ambil: now,
+            tanggal: today
+          });
+          // Tampilkan tiket untuk print
+          document.getElementById('print-nomor').innerText = id;
+          document.getElementById('print-poli').innerText = poliKey.toUpperCase();
+          document.getElementById('print-waktu').innerText = dayjs(now).format('DD MMM YYYY HH:mm');
+          document.getElementById('modal-tiket').style.display = 'flex';
+          setTimeout(() => window.print(), 500);
+        });
+      }
+    }
+
+    // ================= HALAMAN DISPLAY TV =================
+    if (page === 'display') {
+      let lastCalled = {};
+      document.body.addEventListener('click', () => {
+        new Audio().play().catch(() => {});
+        document.getElementById('unlock-info').style.display = 'none';
+      }, { once: true });
+
+      onValue(ref(db, 'antrian/list'), (snap) => {
+        const list = snap.val() || {};
+        const dipanggil = Object.values(list).filter(i => i.status === 'dipanggil');
+
+        // Update tabel display
+        const tbody = document.getElementById('tabel-display');
+        tbody.innerHTML = '';
+        dipanggil.sort((a,b) => b.waktu_panggil - a.waktu_panggil).slice(0,5).forEach(item => {
+          const tr = document.createElement('tr');
+          tr.className = 'text-center border-b border-gray-700';
+          tr.innerHTML = `
+            <td class="py-4 text-6xl font-bold text-yellow-400">${item.prefix}${String(item.nomor).padStart(3,'0')}</td>
+            <td class="py-4 text-5xl font-bold">${item.loket_nama}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        // Mainkan suara untuk yg baru dipanggil
+        dipanggil.forEach(item => {
+          const key = item.prefix + item.nomor;
+          if (lastCalled[key]!== item.waktu_panggil) {
+            lastCalled[key] = item.waktu_panggil;
+            const playQueue = [
+              'suara/ding.mp3',
+              `suara/antrian.mp3`,
+              `suara/${item.prefix.toLowerCase()}.mp3`,
+              `suara/nomor-${item.nomor}.mp3`,
+              `suara/silakan-ke.mp3`,
+              `suara/${item.loket_id}.mp3`
+            ];
+            function playNext(i = 0) {
+              if (i >= playQueue.length) return;
+              const audio = new Audio(playQueue[i]);
+              audio.onended = () => playNext(i + 1);
+              audio.onerror = () => playNext(i + 1);
+              audio.play();
+            }
+            playNext();
+          }
+        });
+      });
+    }
+
+    // ================= HALAMAN LOGIN LOKET =================
+    if (page === 'login') {
+      onValue(ref(db, 'loket'), (snap) => {
+        const lokets = snap.val() || {};
+        const container = document.getElementById('list-loket');
+        container.innerHTML = '';
+        Object.entries(lokets).forEach(([key, val]) => {
+          const btn = document.createElement('button');
+          btn.className = `w-full ${val.aktif? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700'} text-white text-lg font-bold py-4 rounded-lg mb-3`;
+          btn.innerText = `${val.nama} - ${val.poli.toUpperCase()} ${val.aktif? '(Online)' : ''}`;
+          btn.disabled = val.aktif;
+          btn.onclick = () => {
+            const pin = prompt(`PIN untuk ${val.nama}:`);
+            if (pin === val.pin) {
+              update(ref(db, 'loket/' + key), { aktif: true });
+              sessionStorage.setItem('loket_id', key);
+              window.location.hash = '#petugas';
+              window.location.reload();
+            } else alert('PIN Salah!');
+          };
+          container.appendChild(btn);
+        });
+      });
+    }
+
+    // ================= HALAMAN PETUGAS =================
+    if (page === 'petugas') {
+      const loketId = sessionStorage.getItem('loket_id');
+      if (!loketId) return window.location.hash = '#login';
+
+      let loketData = {};
+      get(ref(db, 'loket/' + loketId)).then(snap => {
+        loketData = snap.val();
+        document.getElementById('nama-loket').innerText = loketData.nama;
+        document.getElementById('nama-poli').innerText = loketData.poli.toUpperCase();
+      });
+
+      document.getElementById('btn-logout').onclick = () => {
+        update(ref(db, 'loket/' + loketId), { aktif: false });
+        sessionStorage.clear();
+        window.location.hash = '#login';
+      };
+
+      // Tombol aksi
+      document.getElementById('btn-panggil').onclick = () => aksiAntrian('panggil');
+      document.getElementById('btn-panggil-ulang').onclick = () => aksiAntrian('ulang');
+      document.getElementById('btn-lewat').onclick = () => aksiAntrian('lewat');
+      document.getElementById('btn-selesai').onclick = () => aksiAntrian('selesai');
+
+      function aksiAntrian(aksi) {
+        runTransaction(ref(db, 'antrian/list'), (list) => {
+          if (!list) return list;
+          const now = Date.now();
+
+          // 1. Cari yg lagi dilayani loket ini
+          const sedangDilayani = Object.entries(list).find(([k,v]) =>
+            v.status === 'dipanggil' && v.loket_id === loketId
+          );
+
+          if (aksi === 'selesai' || aksi === 'lewat') {
+            if (sedangDilayani) {
+              list[sedangDilayani[0]].status = aksi === 'selesai'? 'selesai' : 'lewat';
+              list[sedangDilayani[0]].waktu_selesai = now;
+            }
+          }
+
+          if (aksi === 'ulang') {
+            if (sedangDilayani) list[sedangDilayani[0]].waktu_panggil = now;
+            else alert('Tidak ada antrian yg sedang dipanggil');
+            return list;
+          }
+
+          if (aksi === 'panggil') {
+            // Selesaikan yg lama dulu
+            if (sedangDilayani) {
+              list[sedangDilayani[0]].status = 'selesai';
+              list[sedangDilayani[0]].waktu_selesai = now;
+            }
+            // Ambil antrian baru sesuai poli loket
+            const menunggu = Object.entries(list)
+             .filter(([k,v]) => v.status === 'menunggu' && v.poli === loketData.poli)
+             .sort((a,b) => a[1].nomor - b[1].nomor);
+
+            if (menunggu.length > 0) {
+              list[menunggu[0][0]].status = 'dipanggil';
+              list[menunggu[0][0]].loket_id = loketId;
+              list[menunggu[0][0]].loket_nama = loketData.nama;
+              list[menunggu[0][0]].waktu_panggil = now;
+            } else alert('Antrian kosong');
+          }
+          return list;
+        });
+      }
+
+      // Update info realtime
+      onValue(ref(db, 'antrian/list'), (snap) => {
+        const list = Object.values(snap.val() || {});
+        const menunggu = list.filter(i => i.status === 'menunggu' && i.poli === loketData.poli).length;
+        const dilayani = list.find(i => i.status === 'dipanggil' && i.loket_id === loketId);
+        document.getElementById('info-menunggu').innerText = menunggu;
+        document.getElementById('info-dilayani').innerText = dilayani? dilayani.prefix + String(dilayani.nomor).padStart(3,'0') : '-';
+      });
+    }
+
+    // ================= HALAMAN REKAP =================
+    if (page === 'rekap') {
+      document.getElementById('btn-filter').onclick = loadRekap;
+      loadRekap();
+
+      function loadRekap() {
+        const tgl = document.getElementById('filter-tgl').value || today;
+        get(query(ref(db, 'antrian/list'), orderByChild('tanggal'), equalTo(tgl))).then(snap => {
+          const data = Object.values(snap.val() || {});
+          const total = data.length;
+          const selesai = data.filter(i => i.status === 'selesai').length;
+          const lewat = data.filter(i => i.status === 'lewat').length;
+          const menunggu = data.filter(i => i.status === 'menunggu').length;
+
+          document.getElementById('rekap-total').innerText = total;
+          document.getElementById('rekap-selesai').innerText = selesai;
+          document.getElementById('rekap-lewat').innerText = lewat;
+          document.getElementById('rekap-menunggu').innerText = menunggu;
+
+          // Tabel detail
+          const tbody = document.getElementById('tabel-rekap');
+          tbody.innerHTML = '';
+          data.sort((a,b) => a.nomor - b.nomor).forEach(i => {
+            const tr = document.createElement('tr');
+            tr.className = 'border-b';
+            tr.innerHTML = `
+              <td class="py-2 px-4">${i.prefix}${String(i.nomor).padStart(3,'0')}</td>
+              <td class="py-2 px-4">${i.poli.toUpperCase()}</td>
+              <td class="py-2 px-4">${i.status}</td>
+              <td class="py-2 px-4">${i.loket_nama || '-'}</td>
+              <td class="py-2 px-4">${dayjs(i.waktu_ambil).format('HH:mm')}</td>
+            `;
+            tbody.appendChild(tr);
+          });
+        });
+      }
+    }
+  </script>
+</head>
+<body class="bg-gray-100">
+  <!-- 1. HALAMAN HOME - AMBIL NOMOR -->
+  <div id="home" class="page p-4 max-w-2xl mx-auto">
+    <div class="bg-white rounded-2xl shadow-xl p-8 mt-8 text-center">
+      <h1 id="nama-rs" class="text-3xl font-bold text-blue-800 mb-1">NAMA RS</h1>
+      <p id="alamat-rs" class="text-gray-500 mb-8">Alamat RS</p>
+      <h2 class="text-xl font-semibold mb-6">Silakan Pilih Poli Tujuan</h2>
+      <div id="list-poli"></div>
+      <div class="mt-8 text-sm text-gray-400">
+        <a href="#display" class="underline">Display</a> |
+        <a href="#login" class="underline">Login Petugas</a> |
+        <a href="#rekap" class="underline">Rekap</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. HALAMAN DISPLAY TV -->
+  <div id="display" class="page bg-gray-900 text-white min-h-screen">
+    <div class="no-print p-6">
+      <p id="unlock-info" class="text-center text-yellow-300 text-2xl animate-pulse">Klik layar sekali untuk aktifkan suara</p>
+    </div>
+    <div class="text-center py-8">
+      <h1 class="text-5xl font-bold mb-12">PANGGILAN ANTRIAN</h1>
+      <table class="w-full max-w-4xl mx-auto">
+        <thead>
+          <tr class="text-3xl text-gray-400">
+            <th class="pb-6">NOMOR</th>
+            <th class="pb-6">LOKET</th>
+          </tr>
+        </thead>
+        <tbody id="tabel-display"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 3. HALAMAN LOGIN -->
+  <div id="login" class="page p-4 max-w-md mx-auto">
+    <div class="bg-white rounded-xl shadow-lg p-6 mt-10">
+      <h1 class="text-2xl font-bold mb-6 text-center">Login Petugas Loket</h1>
+      <div id="list-loket"></div>
+      <a href="#home" class="block text-center mt-6 text-blue-600">Kembali ke Home</a>
+    </div>
+  </div>
+
+  <!-- 4. HALAMAN PETUGAS -->
+  <div id="petugas" class="page p-4 max-w-4xl mx-auto">
+    <div class="bg-white rounded-xl shadow-lg p-6 mt-6">
+      <div class="flex justify-between items-center mb-6 pb-4 border-b">
+        <div>
+          <h1 id="nama-loket" class="text-2xl font-bold">Loket</h1>
+          <p id="nama-poli" class="text-blue-600 font-semibold">POLI</p>
+        </div>
+        <button id="btn-logout" class="bg-red-500 text-white px-4 py-2 rounded-lg">Logout</button>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 mb-6">
+        <div class="bg-blue-50 p-4 rounded-lg text-center">
+          <p class="text-sm text-gray-600">Sedang Dilayani</p>
+          <p id="info-dilayani" class="text-4xl font-bold text-blue-600">-</p>
+        </div>
+        <div class="bg-yellow-50 p-4 rounded-lg text-center">
+          <p class="text-sm text-gray-600">Antrian Menunggu</p>
+          <p id="info-menunggu" class="text-4xl font-bold text-yellow-600">0</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <button id="btn-panggil" class="bg-green-600 text-white text-lg font-bold py-4 rounded-lg">PANGGIL BERIKUTNYA</button>
+        <button id="btn-panggil-ulang" class="bg-yellow-500 text-white text-lg font-bold py-4 rounded-lg">PANGGIL ULANG</button>
+        <button id="btn-selesai" class="bg-blue-600 text-white text-lg font-bold py-4 rounded-lg">SELESAI</button>
+        <button id="btn-lewat" class="bg-red-500 text-white text-lg font-bold py-4 rounded-lg">LEWATI</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. HALAMAN REKAP -->
+  <div id="rekap" class="page p-4 max-w-6xl mx-auto">
+    <div class="bg-white rounded-xl shadow-lg p-6 mt-6">
+      <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold">Rekap Antrian Harian</h1>
+        <a href="#home" class="text-blue-600">Kembali</a>
+      </div>
+
+      <div class="flex gap-3 mb-6">
+        <input type="date" id="filter-tgl" class="border px-3 py-2 rounded-lg" />
+        <button id="btn-filter" class="bg-blue-600 text-white px-6 py-2 rounded-lg">Filter</button>
+        <button onclick="window.print()" class="bg-gray-600 text-white px-6 py-2 rounded-lg no-print">Cetak Rekap</button>
+      </div>
+
+      <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="bg-gray-50 p-4 rounded-lg text-center">
+          <p class="text-sm">Total Ambil</p>
+          <p id="rekap-total" class="text-3xl font-bold">0</p>
+        </div>
+        <div class="bg-green-50 p-4 rounded-lg text-center">
+          <p class="text-sm">Selesai</p>
+          <p id="rekap-selesai" class="text-3xl font-bold text-green-600">0</p>
+        </div>
+        <div class="bg-red-50 p-4 rounded-lg text-center">
+          <p class="text-sm">Terlewat</p>
+          <p id="rekap-lewat" class="text-3xl font-bold text-red-600">0</p>
+        </div>
+        <div class="bg-yellow-50 p-4 rounded-lg text-center">
+          <p class="text-sm">Menunggu</p>
+          <p id="rekap-menunggu" class="text-3xl font-bold text-yellow-600">0</p>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-100">
+            <tr>
+              <th class="py-2 px-4 text-left">Nomor</th>
+              <th class="py-2 px-4 text-left">Poli</th>
+              <th class="py-2 px-4 text-left">Status</th>
+              <th class="py-2 px-4 text-left">Loket</th>
+              <th class="py-2 px-4 text-left">Jam Ambil</th>
+            </tr>
+          </thead>
+          <tbody id="tabel-rekap"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL CETAK TIKET -->
+  <div id="modal-tiket" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center no-print">
+    <div class="bg-white p-6 rounded-xl">
+      <div class="print-area w-48 text-center text-black">
+        <h2 class="font-bold text-lg">RS SEHAT SENTOSA</h2>
+        <p class="text-xs mb-3">Jl. Raya Sehat No. 1</p>
+        <p class="text-sm">--------------------------</p>
+        <p class="text-sm mt-2">NOMOR ANTRIAN</p>
+        <p id="print-nomor" class="text-5xl font-bold my-2">A001</p>
+        <p class="text-sm">POLI: <span id="print-poli">UMUM</span></p>
+        <p id="print-waktu" class="text-xs mt-2">01 Jan 2026 08:00</p>
+        <p class="text-xs mt-3">Harap tunggu panggilan</p>
+        <p class="text-sm">--------------------------</p>
+      </div>
+      <button onclick="document.getElementById('modal-tiket').style.display='none'" class="mt-4 w-full bg-blue-600 text-white py-2 rounded-lg no-print">Tutup</button>
+    </div>
+  </div>
+</body>
+</html>
