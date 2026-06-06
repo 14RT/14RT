@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="id" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antrian Online</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+  <script src="/_sdk/element_sdk.js"></script>
+  <script src="/_sdk/data_sdk.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&amp;family=Space+Mono:wght@700&amp;display=swap" rel="stylesheet">
+  <style>
+    * { font-family: 'DM Sans', sans-serif; }
+    .mono { font-family: 'Space Mono', monospace; }
+    @keyframes pulse-ring { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1.4); opacity: 0; } }
+    .pulse-ring { animation: pulse-ring 1.5s ease-out infinite; }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    .slide-up { animation: slideUp 0.4s ease-out; }
+    @media print {
+      .no-print { display: none !important; }
+      .print-only { display: block !important; }
+    }
+    .print-only { display: none; }
+  </style>
+  <style>body { box-sizing: border-box; }</style>
+ <script src="/_sdk/telemetry_sdk.js"></script></head>
+ <body class="h-full">
+  <div id="app" class="h-full w-full bg-slate-900 overflow-auto"><!-- Navigation Tabs -->
+   <nav class="no-print sticky top-0 z-50 bg-slate-800/95 backdrop-blur border-b border-slate-700">
+    <div class="max-w-5xl mx-auto flex"><button onclick="switchTab('customer')" id="tab-customer" class="flex-1 py-4 px-4 text-sm font-semibold text-center transition-colors border-b-2 border-emerald-400 text-emerald-400"> <span class="flex items-center justify-center gap-2"><i data-lucide="ticket" class="w-4 h-4"></i> Ambil Antrian</span> </button> <button onclick="switchTab('display')" id="tab-display" class="flex-1 py-4 px-4 text-sm font-semibold text-center transition-colors border-b-2 border-transparent text-slate-400 hover:text-slate-200"> <span class="flex items-center justify-center gap-2"><i data-lucide="monitor" class="w-4 h-4"></i> Display</span> </button> <button onclick="switchTab('admin')" id="tab-admin" class="flex-1 py-4 px-4 text-sm font-semibold text-center transition-colors border-b-2 border-transparent text-slate-400 hover:text-slate-200"> <span class="flex items-center justify-center gap-2"><i data-lucide="settings" class="w-4 h-4"></i> Petugas</span> </button>
+    </div>
+   </nav><!-- Customer View -->
+   <section id="view-customer" class="max-w-lg mx-auto p-6 slide-up">
+    <div class="text-center mb-8">
+     <h1 id="el-office-name" class="text-2xl font-bold text-white mb-2">Kantor Pelayanan</h1>
+     <p id="el-welcome-text" class="text-slate-400">Selamat Datang</p>
+    </div>
+    <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700 mb-6">
+     <p class="text-slate-400 text-sm mb-4 text-center">Pilih jenis layanan:</p>
+     <div class="grid grid-cols-1 gap-3"><button onclick="takeQueue('Umum')" class="take-btn bg-emerald-600 hover:bg-emerald-500 text-white py-4 px-6 rounded-xl font-semibold transition-all flex items-center gap-3"> <i data-lucide="users" class="w-5 h-5"></i> Layanan Umum </button> <button onclick="takeQueue('Pembayaran')" class="take-btn bg-blue-600 hover:bg-blue-500 text-white py-4 px-6 rounded-xl font-semibold transition-all flex items-center gap-3"> <i data-lucide="credit-card" class="w-5 h-5"></i> Pembayaran </button> <button onclick="takeQueue('Konsultasi')" class="take-btn bg-violet-600 hover:bg-violet-500 text-white py-4 px-6 rounded-xl font-semibold transition-all flex items-center gap-3"> <i data-lucide="message-circle" class="w-5 h-5"></i> Konsultasi </button>
+     </div>
+    </div><!-- Ticket Result -->
+    <div id="ticket-result" class="hidden bg-gradient-to-br from-emerald-900/50 to-slate-800 rounded-2xl p-8 border border-emerald-700/50 text-center slide-up">
+     <p class="text-emerald-400 text-sm font-semibold uppercase tracking-wider mb-2">Nomor Antrian Anda</p>
+     <p id="ticket-number" class="mono text-6xl font-bold text-white my-4">001</p>
+     <p id="ticket-service" class="text-slate-400 text-sm mb-6">Layanan Umum</p><button onclick="printTicket()" class="bg-slate-700 hover:bg-slate-600 text-white py-2 px-5 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-2"> <i data-lucide="printer" class="w-4 h-4"></i> Cetak Tiket </button>
+    </div><!-- Print Template -->
+    <div id="print-ticket" class="print-only text-center p-8">
+     <h2 id="print-office" class="text-xl font-bold mb-1">Kantor Pelayanan</h2>
+     <p class="text-sm text-gray-500 mb-4">Tiket Antrian</p>
+     <hr class="mb-4">
+     <p class="text-sm mb-1">Nomor Antrian:</p>
+     <p id="print-number" class="mono text-5xl font-bold my-3">001</p>
+     <p id="print-service" class="text-sm text-gray-600 mb-2">Layanan Umum</p>
+     <p id="print-time" class="text-xs text-gray-400"></p>
+     <hr class="mt-4 mb-2">
+     <p class="text-xs text-gray-400">Mohon tunggu nomor Anda dipanggil</p>
+    </div>
+   </section><!-- Display View -->
+   <section id="view-display" class="hidden max-w-4xl mx-auto p-6">
+    <div class="text-center mb-8">
+     <h2 class="text-slate-400 text-sm uppercase tracking-wider mb-2">Nomor Antrian Saat Ini</h2>
+     <div class="relative inline-block">
+      <div class="absolute inset-0 bg-emerald-500/20 rounded-full pulse-ring"></div>
+      <div class="relative bg-slate-800 border-4 border-emerald-400 rounded-full w-40 h-40 flex items-center justify-center"><span id="display-current" class="mono text-5xl font-bold text-emerald-400">---</span>
+      </div>
+     </div>
+     <p id="display-service" class="text-slate-400 mt-4 text-lg">Menunggu...</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+     <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+      <h3 class="text-slate-400 text-sm font-semibold mb-3 flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4"></i> Menunggu</h3>
+      <div id="waiting-list" class="space-y-2 max-h-60 overflow-auto">
+       <p class="text-slate-500 text-sm">Belum ada antrian</p>
+      </div>
+     </div>
+     <div class="bg-slate-800 rounded-xl p-5 border border-slate-700">
+      <h3 class="text-slate-400 text-sm font-semibold mb-3 flex items-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i> Selesai</h3>
+      <div id="done-list" class="space-y-2 max-h-60 overflow-auto">
+       <p class="text-slate-500 text-sm">Belum ada</p>
+      </div>
+     </div>
+    </div>
+   </section><!-- Admin View -->
+   <section id="view-admin" class="hidden max-w-lg mx-auto p-6">
+    <h2 class="text-xl font-bold text-white mb-6 flex items-center gap-2"><i data-lucide="headphones" class="w-5 h-5 text-emerald-400"></i> Panel Petugas</h2>
+    <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 mb-4">
+     <p class="text-slate-400 text-sm mb-1">Antrian berikutnya:</p>
+     <p id="admin-next" class="mono text-4xl font-bold text-white my-3">---</p>
+     <p id="admin-next-service" class="text-slate-500 text-sm mb-5"></p><button onclick="callNext()" id="btn-call" class="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white py-3 px-6 rounded-xl font-semibold transition-all flex items-center justify-center gap-2"> <i data-lucide="volume-2" class="w-5 h-5"></i> Panggil Berikutnya </button>
+    </div>
+    <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 mb-4">
+     <p class="text-slate-400 text-sm mb-3">Statistik Hari Ini</p>
+     <div class="grid grid-cols-3 gap-3 text-center">
+      <div>
+       <p id="stat-waiting" class="mono text-2xl font-bold text-yellow-400">0</p>
+       <p class="text-xs text-slate-500">Menunggu</p>
+      </div>
+      <div>
+       <p id="stat-called" class="mono text-2xl font-bold text-emerald-400">0</p>
+       <p class="text-xs text-slate-500">Dipanggil</p>
+      </div>
+      <div>
+       <p id="stat-done" class="mono text-2xl font-bold text-blue-400">0</p>
+       <p class="text-xs text-slate-500">Selesai</p>
+      </div>
+     </div>
+    </div><button onclick="markDone()" id="btn-done" class="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white py-3 px-6 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 mb-3"> <i data-lucide="check" class="w-5 h-5"></i> Selesai Dilayani </button> <button onclick="resetQueue()" class="w-full bg-red-900/50 hover:bg-red-900 border border-red-800 text-red-300 py-3 px-6 rounded-xl font-medium transition-all flex items-center justify-center gap-2"> <i data-lucide="trash-2" class="w-5 h-5"></i> Reset Antrian </button> <!-- Inline confirm -->
+    <div id="reset-confirm" class="hidden mt-3 bg-red-950 border border-red-800 rounded-xl p-4 text-center slide-up">
+     <p class="text-red-300 text-sm mb-3">Yakin ingin menghapus semua antrian?</p>
+     <div class="flex gap-2 justify-center"><button onclick="confirmReset()" class="bg-red-600 hover:bg-red-500 text-white py-2 px-4 rounded-lg text-sm font-medium">Ya, Hapus</button> <button onclick="cancelReset()" class="bg-slate-700 hover:bg-slate-600 text-white py-2 px-4 rounded-lg text-sm font-medium">Batal</button>
+     </div>
+    </div><!-- Toast -->
+    <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-emerald-600 text-white py-3 px-6 rounded-xl shadow-xl font-medium text-sm transition-all translate-y-20 opacity-0 pointer-events-none z-50"></div>
+   </section><!-- Loading overlay -->
+   <div id="loading-overlay" class="hidden fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center">
+    <div class="text-center">
+     <div class="w-10 h-10 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+     <p class="text-slate-300 text-sm">Memproses...</p>
+    </div>
+   </div>
+  </div>
+  <script>
+  // State
+  let allData = [];
+  let currentCalled = null;
+  let audioCtx = null;
+
+  // Config
+  const defaultConfig = {
+    office_name: 'Kantor Pelayanan',
+    welcome_text: 'Selamat Datang',
+    background_color: '#0f172a',
+    surface_color: '#1e293b',
+    text_color: '#f8fafc',
+    primary_color: '#10b981',
+    secondary_color: '#3b82f6',
+    font_family: 'DM Sans',
+    font_size: 16
+  };
+
+  // Element SDK
+  window.elementSdk.init({
+    defaultConfig,
+    onConfigChange: async (config) => {
+      const c = { ...defaultConfig, ...config };
+      document.getElementById('el-office-name').textContent = c.office_name;
+      document.getElementById('el-welcome-text').textContent = c.welcome_text;
+      document.getElementById('print-office').textContent = c.office_name;
+
+      document.getElementById('app').style.backgroundColor = c.background_color;
+      document.querySelectorAll('.bg-slate-800').forEach(el => el.style.backgroundColor = c.surface_color);
+
+      document.querySelectorAll('h1, h2, .mono').forEach(el => {
+        if (!el.classList.contains('text-emerald-400') && !el.classList.contains('text-yellow-400') && !el.classList.contains('text-blue-400'))
+          el.style.color = c.text_color;
+      });
+
+      document.querySelectorAll('.take-btn').forEach((btn, i) => {
+        if (i === 0) btn.style.backgroundColor = c.primary_color;
+      });
+
+      const baseFont = c.font_family + ', DM Sans, sans-serif';
+      document.body.style.fontFamily = baseFont;
+      const bs = c.font_size;
+      document.querySelectorAll('h1').forEach(el => el.style.fontSize = (bs * 1.5) + 'px');
+      document.querySelectorAll('p, button').forEach(el => { if (!el.classList.contains('mono')) el.style.fontSize = bs + 'px'; });
+    },
+    mapToCapabilities: (config) => {
+      const c = { ...defaultConfig, ...config };
+      const makeColor = (key) => ({
+        get: () => c[key] || defaultConfig[key],
+        set: (v) => { c[key] = v; window.elementSdk.setConfig({ [key]: v }); }
+      });
+      return {
+        recolorables: [
+          makeColor('background_color'),
+          makeColor('surface_color'),
+          makeColor('text_color'),
+          makeColor('primary_color'),
+          makeColor('secondary_color')
+        ],
+        borderables: [],
+        fontEditable: {
+          get: () => c.font_family || defaultConfig.font_family,
+          set: (v) => { c.font_family = v; window.elementSdk.setConfig({ font_family: v }); }
+        },
+        fontSizeable: {
+          get: () => c.font_size || defaultConfig.font_size,
+          set: (v) => { c.font_size = v; window.elementSdk.setConfig({ font_size: v }); }
+        }
+      };
+    },
+    mapToEditPanelValues: (config) => {
+      const c = { ...defaultConfig, ...config };
+      return new Map([
+        ['office_name', c.office_name],
+        ['welcome_text', c.welcome_text]
+      ]);
+    }
+  });
+
+  // Data SDK
+  const dataHandler = {
+    onDataChanged(data) {
+      allData = data;
+      renderAll();
+    }
+  };
+
+  (async () => {
+    const r = await window.dataSdk.init(dataHandler);
+    if (!r.isOk) console.error('Data SDK init failed');
+  })();
+
+  // Tab switching
+  function switchTab(tab) {
+    ['customer', 'display', 'admin'].forEach(t => {
+      document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
+      const tabBtn = document.getElementById('tab-' + t);
+      tabBtn.classList.toggle('border-emerald-400', t === tab);
+      tabBtn.classList.toggle('text-emerald-400', t === tab);
+      tabBtn.classList.toggle('border-transparent', t !== tab);
+      tabBtn.classList.toggle('text-slate-400', t !== tab);
+    });
+  }
+
+  // Take queue
+  async function takeQueue(serviceType) {
+    if (allData.length >= 999) { showToast('Antrian sudah penuh (maks 999)'); return; }
+    showLoading(true);
+    const maxNum = allData.reduce((max, d) => Math.max(max, d.queue_number || 0), 0);
+    const newNum = maxNum + 1;
+    const result = await window.dataSdk.create({
+      queue_number: newNum,
+      status: 'waiting',
+      created_at: new Date().toISOString(),
+      called_at: '',
+      service_type: serviceType
+    });
+    showLoading(false);
+    if (result.isOk) {
+      const numStr = String(newNum).padStart(3, '0');
+      document.getElementById('ticket-number').textContent = numStr;
+      document.getElementById('ticket-service').textContent = serviceType;
+      document.getElementById('ticket-result').classList.remove('hidden');
+      document.getElementById('print-number').textContent = numStr;
+      document.getElementById('print-service').textContent = serviceType;
+      document.getElementById('print-time').textContent = new Date().toLocaleString('id-ID');
+    } else {
+      showToast('Gagal mengambil antrian');
+    }
+  }
+
+  // Call next
+  async function callNext() {
+    const waiting = allData.filter(d => d.status === 'waiting').sort((a, b) => a.queue_number - b.queue_number);
+    if (!waiting.length) { showToast('Tidak ada antrian menunggu'); return; }
+    const next = waiting[0];
+    showLoading(true);
+    const updated = { ...next, status: 'called', called_at: new Date().toISOString() };
+    const result = await window.dataSdk.update(updated);
+    showLoading(false);
+    if (result.isOk) {
+      currentCalled = updated;
+      speakNumber(next.queue_number, next.service_type);
+      showToast('Memanggil nomor ' + String(next.queue_number).padStart(3, '0'));
+    } else {
+      showToast('Gagal memanggil antrian');
+    }
+  }
+
+  // Mark done
+  async function markDone() {
+    const called = allData.find(d => d.status === 'called');
+    if (!called) { showToast('Tidak ada antrian yang sedang dilayani'); return; }
+    showLoading(true);
+    const result = await window.dataSdk.update({ ...called, status: 'done' });
+    showLoading(false);
+    if (result.isOk) {
+      currentCalled = null;
+      showToast('Antrian selesai dilayani');
+    } else {
+      showToast('Gagal menyelesaikan antrian');
+    }
+  }
+
+  // Reset
+  function resetQueue() { document.getElementById('reset-confirm').classList.remove('hidden'); }
+  function cancelReset() { document.getElementById('reset-confirm').classList.add('hidden'); }
+  async function confirmReset() {
+    document.getElementById('reset-confirm').classList.add('hidden');
+    showLoading(true);
+    for (const item of [...allData]) {
+      await window.dataSdk.delete(item);
+    }
+    showLoading(false);
+    showToast('Antrian telah direset');
+  }
+
+  // Render
+  function renderAll() {
+    const waiting = allData.filter(d => d.status === 'waiting').sort((a, b) => a.queue_number - b.queue_number);
+    const called = allData.filter(d => d.status === 'called');
+    const done = allData.filter(d => d.status === 'done');
+
+    // Display
+    if (called.length > 0) {
+      const c = called[called.length - 1];
+      document.getElementById('display-current').textContent = String(c.queue_number).padStart(3, '0');
+      document.getElementById('display-service').textContent = c.service_type || '';
+    } else {
+      document.getElementById('display-current').textContent = '---';
+      document.getElementById('display-service').textContent = 'Menunggu...';
+    }
+
+    // Waiting list
+    const wl = document.getElementById('waiting-list');
+    if (waiting.length === 0) {
+      wl.innerHTML = '<p class="text-slate-500 text-sm">Belum ada antrian</p>';
+    } else {
+      wl.innerHTML = waiting.map(d => `<div class="flex justify-between items-center bg-slate-700/50 rounded-lg px-3 py-2"><span class="mono text-white font-bold">${String(d.queue_number).padStart(3, '0')}</span><span class="text-xs text-slate-400">${d.service_type}</span></div>`).join('');
+    }
+
+    // Done list
+    const dl = document.getElementById('done-list');
+    if (done.length === 0) {
+      dl.innerHTML = '<p class="text-slate-500 text-sm">Belum ada</p>';
+    } else {
+      dl.innerHTML = done.slice(-10).reverse().map(d => `<div class="flex justify-between items-center bg-slate-700/30 rounded-lg px-3 py-2"><span class="mono text-slate-300">${String(d.queue_number).padStart(3, '0')}</span><span class="text-xs text-slate-500">${d.service_type}</span></div>`).join('');
+    }
+
+    // Admin
+    if (waiting.length > 0) {
+      document.getElementById('admin-next').textContent = String(waiting[0].queue_number).padStart(3, '0');
+      document.getElementById('admin-next-service').textContent = waiting[0].service_type;
+    } else {
+      document.getElementById('admin-next').textContent = '---';
+      document.getElementById('admin-next-service').textContent = '';
+    }
+
+    // Stats
+    document.getElementById('stat-waiting').textContent = waiting.length;
+    document.getElementById('stat-called').textContent = called.length;
+    document.getElementById('stat-done').textContent = done.length;
+
+    // Button states
+    document.getElementById('btn-call').disabled = waiting.length === 0;
+    document.getElementById('btn-done').disabled = called.length === 0;
+  }
+
+  // Audio - Web Audio API bell + speech
+  function speakNumber(num, service) {
+    // Bell sound
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+    osc.frequency.setValueAtTime(1100, audioCtx.currentTime + 0.1);
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.2);
+    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + 0.5);
+
+    // Speech synthesis
+    setTimeout(() => {
+      if ('speechSynthesis' in window) {
+        const msg = new SpeechSynthesisUtterance(`Nomor antrian ${num}, ${service}, silakan menuju loket.`);
+        msg.lang = 'id-ID';
+        msg.rate = 0.9;
+        speechSynthesis.speak(msg);
+      }
+    }, 600);
+  }
+
+  // Print
+  function printTicket() { window.print(); }
+
+  // Helpers
+  function showLoading(show) { document.getElementById('loading-overlay').classList.toggle('hidden', !show); }
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
+    setTimeout(() => t.classList.add('translate-y-20', 'opacity-0', 'pointer-events-none'), 3000);
+  }
+
+  lucide.createIcons();
+</script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a076a24f69f9ce5b',t:'MTc4MDc0MDY5Nw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
